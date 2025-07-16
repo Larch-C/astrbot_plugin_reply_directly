@@ -1,6 +1,6 @@
 # Reply Directly - 智能群聊增强插件 for AstrBot
 
-[![Plugin Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/qa296/astrbot_plugin_reply_directly)
+[![Plugin Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](https://github.com/qa296/astrbot_plugin_reply_directly)
 [![For AstrBot](https://img.shields.io/badge/for-AstrBot-orange.svg)](https://github.com/AstrBotDevs/AstrBot)
 
 让您的 AstrBot 在群聊中变得更加生动和智能！本插件赋予了机器人两种强大的能力：**沉浸式对话**和**主动插话**，使其不再是一个被动等待指令的工具，而是一个能主动参与、自然融入群聊的“虚拟伙伴”。
