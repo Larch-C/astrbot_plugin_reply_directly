@@ -8,15 +8,13 @@ from astrbot.api.event import MessageChain
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger, AstrBotConfig
-import astrbot.api.message_components as Comp
-from astrbot.api.provider import Personality
 
 
 @register(
     "astrbot_plugin_reply_directly",
     "qa296",
     "让您的 AstrBot 在群聊中变得更加生动和智能！本插件使其可以主动的连续交互，并完全遵循您设定的人格。",
-    "1.3.0",
+    "1.3.1",
     "https://github.com/qa296/astrbot_plugin_reply_directly",
 )
 class ReplyDirectlyPlugin(Star):
@@ -29,7 +27,7 @@ class ReplyDirectlyPlugin(Star):
         self.direct_reply_context = {}
         self.active_timers = {}
         self.group_chat_buffer = defaultdict(list)
-        logger.info("ReplyDirectly插件 v1.3.0 加载成功！现已支持人格（Persona）继承。")
+        logger.info("ReplyDirectly插件 v1.3.1 加载成功！已修复人格继承的BUG。")
         logger.debug(f"插件配置: {self.config}")
 
     def _extract_json_from_text(self, text: str) -> str:
@@ -49,25 +47,27 @@ class ReplyDirectlyPlugin(Star):
         try:
             curr_cid = await self.context.conversation_manager.get_curr_conversation_id(umo)
             if not curr_cid:
-                return ""
-
-            conversation = await self.context.conversation_manager.get_conversation(umo, curr_cid)
-            if not conversation:
-                return ""
-
-            persona_id = conversation.persona_id
-            # 如果没有特定persona_id且不为显式取消，则使用默认
-            if not persona_id and persona_id != "[%None]":
+                # 如果没有会话，尝试获取默认人格
                 persona_id = self.context.provider_manager.selected_default_persona.get("name")
+            else:
+                conversation = await self.context.conversation_manager.get_conversation(umo, curr_cid)
+                if not conversation:
+                    return ""
+                
+                persona_id = conversation.persona_id
+                # 如果没有特定persona_id且不为显式取消，则使用默认
+                if not persona_id and persona_id != "[%None]":
+                    persona_id = self.context.provider_manager.selected_default_persona.get("name")
             
             if not persona_id or persona_id == "[%None]":
                 return ""
 
-            all_personas: list[Personality] = self.context.provider_manager.personas
+            # 【核心修正】将 all_personas 作为字典列表处理
+            all_personas: list[dict] = self.context.provider_manager.personas
             for persona in all_personas:
-                if persona.name == persona_id:
-                    logger.debug(f"为会话 {umo} 找到生效的人格: {persona.name}")
-                    return persona.prompt
+                if persona.get('name') == persona_id:
+                    logger.debug(f"为会话 {umo} 找到生效的人格: {persona.get('name')}")
+                    return persona.get('prompt', '')
             
             logger.warning(f"为会话 {umo} 找到了persona_id '{persona_id}'，但未在已加载人格中找到匹配项。")
             return ""
@@ -83,22 +83,14 @@ class ReplyDirectlyPlugin(Star):
 
     @filter.llm_tool()
     async def enable_direct_reply_once(self, event: AstrMessageEvent):
-        """
-        当LLM认为可以开启沉浸式对话时调用此函数。这会让机器人在该群组的下一条消息时直接回复，无需@。此效果仅生效一次。
-        """
-        if not self.config.get("enable_immersive_chat", True):
-            return
-
+        if not self.config.get("enable_immersive_chat", True): return
         group_id = event.get_group_id()
-        if not group_id:
-            return
+        if not group_id: return
 
         try:
             uid = event.unified_msg_origin
             curr_cid = await self.context.conversation_manager.get_curr_conversation_id(uid)
-            if not curr_cid:
-                logger.warning(f"[沉浸式对话] 无法获取群 {group_id} 的当前会话ID，无法保存上下文。")
-                return
+            if not curr_cid: return
 
             conversation = await self.context.conversation_manager.get_conversation(uid, curr_cid)
             context = json.loads(conversation.history) if conversation and conversation.history else []
@@ -114,10 +106,8 @@ class ReplyDirectlyPlugin(Star):
     # -----------------------------------------------------
 
     async def _start_proactive_check(self, group_id: str, unified_msg_origin: str):
-        """辅助函数，用于启动或重置一个群组的主动插话检查任务。"""
         async with self.group_task_lock:
-            if group_id in self.active_timers:
-                self.active_timers[group_id].cancel()
+            if group_id in self.active_timers: self.active_timers[group_id].cancel()
             self.group_chat_buffer[group_id].clear()
             task = asyncio.create_task(self._proactive_check_task(group_id, unified_msg_origin))
             self.active_timers[group_id] = task
@@ -156,11 +146,8 @@ class ReplyDirectlyPlugin(Star):
             )
 
             provider = self.context.get_using_provider()
-            if not provider:
-                logger.warning("[主动插话] 未找到可用的大语言模型提供商。")
-                return
+            if not provider: return
 
-            # 【核心修改】获取并使用 System Prompt
             system_prompt = await self._get_system_prompt_for_umo(unified_msg_origin)
             
             llm_response = await provider.text_chat(prompt=prompt, system_prompt=system_prompt)
@@ -174,7 +161,6 @@ class ReplyDirectlyPlugin(Star):
                     logger.info(f"[主动插话] LLM判断需要回复，内容: {content[:50]}...")
                     message_chain = MessageChain().message(content)
                     await self.context.send_message(unified_msg_origin, message_chain)
-                    logger.info(f"[主动插话] 插话成功，为群 {group_id} 重新启动检测。")
                     await self._start_proactive_check(group_id, unified_msg_origin)
             except (json.JSONDecodeError, TypeError, AttributeError): pass
 
@@ -187,18 +173,12 @@ class ReplyDirectlyPlugin(Star):
                 if self.active_timers.get(group_id) is asyncio.current_task():
                     self.active_timers.pop(group_id, None)
 
-    # -----------------------------------------------------
-    # 统一的消息监听器
-    # -----------------------------------------------------
-
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
-        """统一处理所有群聊消息"""
         if not self.config.get("enable_plugin", True): return
         group_id = event.get_group_id()
         if not group_id or event.get_sender_id() == event.get_self_id(): return
 
-        # 逻辑1: 检查是否处于沉浸式对话模式
         if self.config.get("enable_immersive_chat", True):
             saved_data = None
             async with self.immersive_lock:
@@ -206,10 +186,7 @@ class ReplyDirectlyPlugin(Star):
                     saved_data = self.direct_reply_context.pop(group_id)
             if saved_data:
                 logger.info(f"[沉浸式对话] 检测到群 {group_id} 的直接回复消息，将携带上下文和人格触发LLM。")
-                
-                # 【核心修改】获取并使用 System Prompt
                 system_prompt = await self._get_system_prompt_for_umo(saved_data["umo"])
-                
                 event.stop_event()
                 yield event.request_llm(
                     prompt=event.message_str,
@@ -219,7 +196,6 @@ class ReplyDirectlyPlugin(Star):
                 )
                 return
 
-        # 逻辑2: 为主动插话功能提供支持
         if self.config.get("enable_proactive_reply", True):
             async with self.group_task_lock:
                 if group_id in self.active_timers:
