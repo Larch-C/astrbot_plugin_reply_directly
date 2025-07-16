@@ -15,7 +15,7 @@ import astrbot.api.message_components as Comp
     "astrbot_plugin_reply_directly",
     "qa296",
     "让您的 AstrBot 在群聊中变得更加生动和智能！本插件使其可以主动的连续交互。",
-    "1.2.0",
+    "1.3.0",
     "https://github.com/qa296/astrbot_plugin_reply_directly",
 )
 class ReplyDirectlyPlugin(Star):
@@ -28,20 +28,26 @@ class ReplyDirectlyPlugin(Star):
         self.direct_reply_context = {}
         self.active_timers = {}
         self.group_chat_buffer = defaultdict(list)
-        logger.info("ReplyDirectly插件 v1.2.0 加载成功！")
+        logger.info("ReplyDirectly插件 v1.3.0 加载成功！")
         logger.debug(f"插件配置: {self.config}")
 
     def _extract_json_from_text(self, text: str) -> str:
-        pattern = r"```json\s*(.*?)\s*```"
-        match = re.search(pattern, text, re.DOTALL)
+        # 优先策略：寻找被 ```json ... ``` 包裹的代码块，这是最明确的格式
+        json_block_pattern = r'```json\s*(\{.*?\})\s*```'
+        match = re.search(json_block_pattern, text, re.DOTALL)
         if match:
+            # group(1) 捕获的是括号内的内容，也就是完整的 { ... }
             return match.group(1).strip()
 
+        # 备用策略：如果上面没找到，就寻找第一个 { 和最后一个 } 之间的所有内容
+        # 这比之前的正则表达式更稳定，能处理多行和嵌套
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             return text[start : end + 1].strip()
-        return text.strip()
+            
+        # 如果最终什么都没找到，返回空字符串，避免后续代码出错
+        return ""
 
     # -----------------------------------------------------
     # Feature 1: 沉浸式对话 (Immersive Chat)
@@ -152,21 +158,55 @@ class ReplyDirectlyPlugin(Star):
                 f"[主动插话] 群 {group_id} 计时结束，收集到 {len(chat_history)} 条消息，请求LLM判断。"
             )
 
+            # 1. 获取当前会话对应的人格(Persona)的系统提示词
+            base_system_prompt = ""
+            try:
+                uid = unified_msg_origin
+                curr_cid = await self.context.conversation_manager.get_curr_conversation_id(uid)
+                conversation = await self.context.conversation_manager.get_conversation(uid, curr_cid) if curr_cid else None
+
+                persona_id = conversation.persona_id if conversation else None
+                all_personas = self.context.provider_manager.personas
+
+                # 如果会话有人格设定且不是"无",则查找对应人格
+                if persona_id and persona_id != "[%None]":
+                    found_persona = next((p for p in all_personas if p.get("name") == persona_id), None)
+                    if found_persona:
+                        base_system_prompt = found_persona.get("prompt", "")
+                # 如果会话未指定人格,则使用默认人格
+                elif not persona_id:
+                    default_persona_id = self.context.provider_manager.selected_default_persona.get("name")
+                    if default_persona_id:
+                        found_persona = next((p for p in all_personas if p.get("name") == default_persona_id), None)
+                        if found_persona:
+                            base_system_prompt = found_persona.get("prompt", "")
+            except Exception as e:
+                logger.error(f"[主动插话] 获取人格配置时出错: {e}", exc_info=True)
+
+
+            # 2. 组合最终的系统提示词和用户提示词
             formatted_history = "\n".join(chat_history)
-            prompt = (
-                f"你是一个名为AstrBot的AI助手。在一个群聊里，在你刚刚说完话之后的一段时间里，群里发生了以下的对话：\n"
-                f"--- 对话记录 ---\n{formatted_history}\n--- 对话记录结束 ---\n"
-                f"现在请你判断，根据以上对话内容，你是否应该主动插话，以使对话更流畅或提供帮助。请严格按照JSON格式在```json ... ```代码块中回答，不要有任何其他说明文字。\n"
+            user_prompt = (
+                f"--- 对话记录 ---\n{formatted_history}\n--- 对话记录结束 ---"
+            )
+
+            # 您指定的指令
+            instruction = (
+                "在一个群聊里，在你刚刚说完话之后的一段时间里，群里发生了以下的对话。根据以上对话内容，你是否应该主动插话，"
+                "无论无何请严格按照JSON格式在```json ... ```代码块中回答。"
                 f'格式示例：\n```json\n{{"should_reply": true, "content": "你的回复内容"}}\n```\n'
                 f'或\n```json\n{{"should_reply": false, "content": ""}}\n```'
             )
 
+            final_system_prompt = f"{base_system_prompt}\n\n{instruction}".strip()
+
+            # 3. 调用大语言模型
             provider = self.context.get_using_provider()
             if not provider:
                 logger.warning("[主动插话] 未找到可用的大语言模型提供商。")
                 return
 
-            llm_response = await provider.text_chat(prompt=prompt)
+            llm_response = await provider.text_chat(prompt=user_prompt, system_prompt=final_system_prompt)
             json_string = self._extract_json_from_text(llm_response.completion_text)
             if not json_string:
                 logger.warning(
@@ -182,7 +222,7 @@ class ReplyDirectlyPlugin(Star):
                     message_chain = MessageChain().message(content)
                     await self.context.send_message(unified_msg_origin, message_chain)
 
-                    # 【核心修改】在成功插话后，立即调用辅助函数，重新启动新一轮的检测，形成循环！
+                    # 成功插话后，立即调用辅助函数，重新启动新一轮的检测
                     logger.info(f"[主动插话] 插话成功，为群 {group_id} 重新启动检测。")
                     await self._start_proactive_check(group_id, unified_msg_origin)
 
