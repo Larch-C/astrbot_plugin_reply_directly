@@ -44,7 +44,7 @@ class ReplyDirectlyPlugin(Star):
         return text.strip()
 
     # ==================================================================
-    # [NEW HELPER FUNCTION] - The core of the new feature
+    # [FIXED HELPER FUNCTION] - Corrected version
     # ==================================================================
     async def _get_active_persona_prompt(self, unified_msg_origin: str) -> str:
         """
@@ -74,11 +74,14 @@ class ReplyDirectlyPlugin(Star):
                 return "" # 连默认人格都没有
 
             # 从加载的所有人格中找到匹配的
-            all_personas: list[Personality] = provider_mgr.personas
+            # [FIX] The root cause of the error is here. `personas` is a list of dicts.
+            all_personas: list[dict] = provider_mgr.personas
             for p in all_personas:
-                if p.name == persona_name:
-                    logger.debug(f"为会话 {unified_msg_origin} 找到人格: {p.name}")
-                    return p.prompt
+                # [FIX] Use dictionary access .get('name') instead of attribute access .name
+                if p.get("name") == persona_name:
+                    logger.debug(f"为会话 {unified_msg_origin} 找到人格: {p.get('name')}")
+                    # [FIX] Use dictionary access .get('prompt') to return the prompt
+                    return p.get("prompt", "")
             
             logger.warning(f"会话 {unified_msg_origin} 指定的人格 '{persona_name}' 未找到，将不使用人格。")
             return ""
