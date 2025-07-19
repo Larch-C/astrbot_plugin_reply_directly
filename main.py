@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from asyncio import Lock
 
+from astrbot.core.conversation_mgr import Conversation
 from astrbot.api.event import MessageChain
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -15,7 +16,7 @@ import astrbot.api.message_components as Comp
     "astrbot_plugin_reply_directly",
     "qa296",
     "让您的 AstrBot 在群聊中变得更加生动和智能！本插件使其可以主动的连续交互。",
-    "1.4.0",
+    "1.4.1",
     "https://github.com/qa296/astrbot_plugin_reply_directly",
 )
 class ReplyDirectlyPlugin(Star):
@@ -34,7 +35,7 @@ class ReplyDirectlyPlugin(Star):
 
         self.active_proactive_timers = {}
         self.group_chat_buffer = defaultdict(list)
-        logger.info("ReplyDirectly插件 v1.4.0 加载成功！")
+        logger.info("ReplyDirectly插件 v1.4.1 加载成功！")
         logger.debug(f"插件配置: {self.config}")
 
     def _extract_json_from_text(self, text: str) -> str:
@@ -51,6 +52,7 @@ class ReplyDirectlyPlugin(Star):
             return text[start : end + 1].strip()
             
         return ""
+
 
     # -----------------------------------------------------
     # 辅助函数
@@ -94,6 +96,37 @@ class ReplyDirectlyPlugin(Star):
                 'timer': timer
             }
             logger.info(f"[沉浸式对话] 已为群 {group_id} 的用户 {user_id} 开启了 {timeout}s 的沉浸式会话。")
+
+
+    async def _get_current_persona(self, event: AstrMessageEvent):
+        """获取当前对话使用的人格详细信息"""
+        try:
+            uid = event.unified_msg_origin
+            curr_cid = await self.context.conversation_manager.get_curr_conversation_id(uid)
+            if not curr_cid:
+                return None
+
+            conversation = await self.context.conversation_manager.get_conversation(uid, curr_cid)
+            persona_id = conversation.persona_id
+
+            # 处理默认人格的情况
+            if not persona_id or persona_id == "[%None]":
+                persona_id = self.context.provider_manager.selected_default_persona["name"]
+
+            personas = self.context.provider_manager.personas
+            for p in personas:
+                if p.name == persona_id:
+                    return {
+                        "name": p.name,
+                        "prompt": p.prompt,
+                        "model": p.model,
+                        "max_tokens": p.max_tokens,
+                        "temperature": p.temperature,
+                        "top_p": p.top_p,
+                    }
+        except Exception as e:
+            logger.error(f"[人格获取] 获取当前人格失败: {e}")
+        return None
 
     def _clear_immersive_session(self, session_key):
         """超时后清理沉浸式会话的回调函数"""
@@ -156,6 +189,7 @@ class ReplyDirectlyPlugin(Star):
             formatted_history = "\n".join(chat_history)
             user_prompt = f"--- 对话记录 ---\n{formatted_history}\n--- 对话记录结束 ---"
             instruction = (
+                "{persona['prompt']}"
                 "在一个群聊里，在你刚刚说完话之后的一段时间里，群里发生了以下的对话。根据以上对话内容，你是否应该主动插话，"
                 "无论如何请严格按照JSON格式在```json ... ```代码块中回答。"
                 f'格式示例：\n```json\n{{"should_reply": true, "content": "你的回复内容"}}\n```\n'
@@ -232,6 +266,7 @@ class ReplyDirectlyPlugin(Star):
             saved_context = session_data.get('context', [])
             user_prompt = event.message_str
             instruction = (
+                "{persona['prompt']}"
                 "你刚刚和一位用户进行了对话。现在，这位用户紧接着发送了以下新消息。请根据你们之前的对话上下文和这条新消息，判断你是否应该跟进回复。"
                 "无论如何请严格按照JSON格式在```json ... ```代码块中回答。"
                 f'格式示例：\n```json\n{{"should_reply": true, "content": "你的回复内容"}}\n```\n'
