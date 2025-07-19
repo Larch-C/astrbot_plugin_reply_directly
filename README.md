@@ -42,7 +42,7 @@ cp -r astrbot_plugin_reply_directly  YOUR_ASTRBOT_DIR/data/plugins/
 | `enable_plugin` | bool | `true` | 总开关，关闭后所有功能失效。 |
 | `enable_immersive_chat` | bool | `true` | 是否允许沉浸式连续对话。 |
 | `enable_proactive_reply` | bool | `true` | 是否允许机器人主动插话。 |
-| `proactive_reply_delay` | int | 8 | 机器人发言后等待多少秒再检查插话（5–15 秒体验最佳）。 |
+| `proactive_reply_delay` | int | 8 | 机器人发言后等待多少秒再检查插话（5–30 秒体验最佳）。 |
 | `immersive_reply_timeout` | int | 120 | 沉浸式会话有效期（秒）。 |
 
 ---
