@@ -11,7 +11,7 @@
     "default": true,
     "hint": "机器人回复某用户后，会限时等待该用户的下一条消息，并交由LLM判断是否跟进回复。这会让对话更连贯。"
   },
-  "immersive_reply_timeout": {
+  "immersive_chat_timeout": {
     "description": "沉浸式对话等待超时（秒）",
     "type": "int",
     "default": 100,
