@@ -15,7 +15,7 @@ import astrbot.api.message_components as Comp
     "astrbot_plugin_reply_directly",
     "qa296",
     "让您的 AstrBot 在群聊中变得更加生动和智能！本插件使其可以主动的连续交互。",
-    "1.4.0",
+    "1.4.3",
     "https://github.com/qa296/astrbot_plugin_reply_directly",
 )
 class ReplyDirectlyPlugin(Star):
@@ -34,7 +34,7 @@ class ReplyDirectlyPlugin(Star):
 
         self.active_proactive_timers = {}
         self.group_chat_buffer = defaultdict(list)
-        logger.info("ReplyDirectly插件 v1.4.0 加载成功！")
+        logger.info("ReplyDirectly插件 v1.4.3 加载成功！")
         logger.debug(f"插件配置: {self.config}")
 
     def _extract_json_from_text(self, text: str) -> str:
