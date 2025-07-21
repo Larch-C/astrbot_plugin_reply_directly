@@ -4,7 +4,13 @@
 > 项目地址：[GitHub](https://github.com/qa296/astrbot_plugin_reply_directly)
 
 ---
+</div>
 
+<div align="center">
+
+[![Moe Counter](https://count.getloli.com/get/@HumanLike?theme=moebooru)](https://github.com/qa296/astrbot_plugin_reply_directly/)
+
+</div>
 
 ## 功能亮点
 
