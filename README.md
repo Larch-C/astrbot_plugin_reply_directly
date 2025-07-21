@@ -8,7 +8,7 @@
 
 <div align="center">
 
-[![Moe Counter](https://count.getloli.com/get/@qa296?theme=moebooru)](https://github.com/qa296/astrbot_plugin_reply_directly/)
+[![Moe Counter](https://count.getloli.com/get/@astrbot_plugin_reply_directly)](https://github.com/qa296/astrbot_plugin_reply_directly/)
 
 </div>
 
