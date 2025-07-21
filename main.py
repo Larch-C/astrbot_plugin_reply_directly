@@ -3,7 +3,7 @@ import json
 import re
 from collections import defaultdict
 from asyncio import Lock
-
+from astrbot.core.conversation_mgr import Conversation
 from astrbot.api.event import MessageChain
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -15,7 +15,7 @@ import astrbot.api.message_components as Comp
     "astrbot_plugin_reply_directly",
     "qa296",
     "让您的 AstrBot 在群聊中变得更加生动和智能！本插件使其可以主动的连续交互。",
-    "1.4.3",
+    "1.4.4",
     "https://github.com/qa296/astrbot_plugin_reply_directly",
 )
 class ReplyDirectlyPlugin(Star):
@@ -34,7 +34,7 @@ class ReplyDirectlyPlugin(Star):
 
         self.active_proactive_timers = {}
         self.group_chat_buffer = defaultdict(list)
-        logger.info("ReplyDirectly插件 v1.4.3 加载成功！")
+        logger.info("ReplyDirectly插件 v1.4.4 加载成功！")
         logger.debug(f"插件配置: {self.config}")
 
     def _extract_json_from_text(self, text: str) -> str:
@@ -116,7 +116,7 @@ class ReplyDirectlyPlugin(Star):
         logger.debug(f"[主动插话] 已为群 {group_id} 启动/重置了延时检查任务。")
 
     # -----------------------------------------------------
-    # 核心任务与钩子
+    # 核心任务与钩子（@后触发）
     # -----------------------------------------------------
 
     @filter.after_message_sent()
@@ -126,6 +126,16 @@ class ReplyDirectlyPlugin(Star):
             return
         if event.is_private_chat():
             return
+
+        group_id = event.get_group_id()
+        sender_id = event.get_sender_id()
+        
+        
+        # 如果不是群聊消息，或者消息是机器人自己发的，则直接返回
+        if not group_id or sender_id == event.get_self_id():
+            return
+        
+
 
         # 1. 启动/重置主动插话任务 (针对整个群聊)
         if self.config.get("enable_proactive_reply", True):
@@ -268,7 +278,7 @@ class ReplyDirectlyPlugin(Star):
                 logger.error(f"[主动插话] 解析LLM的JSON回复失败: {e}\n原始回复: {llm_response.completion_text}\n清理后文本: '{json_string}'")
 
         except asyncio.CancelledError:
-            logger.info(f"[主动插话] 群 {group_id} 的检查任务被取消。")
+            logger.debug(f"[主动插话] 群 {group_id} 的检查任务被取消。")
         except Exception as e:
             logger.error(f"[主动插话] 群 {group_id} 的检查任务出现未知异常: {e}", exc_info=True)
         finally:
@@ -277,7 +287,7 @@ class ReplyDirectlyPlugin(Star):
                     self.active_proactive_timers.pop(group_id, None)
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def on_group_message(self, event: AstrMessageEvent):
+    async def on_group_message(self, event: AstrMessageEvent, context: Context):
         """统一处理所有群聊消息，优先处理沉浸式对话。"""
         if not self.config.get("enable_plugin", True):
             return
@@ -286,25 +296,35 @@ class ReplyDirectlyPlugin(Star):
         group_id = event.get_group_id()
         sender_id = event.get_sender_id()
         
+        
         # 如果不是群聊消息，或者消息是机器人自己发的，则直接返回
         if not group_id or sender_id == event.get_self_id():
             return
-    
+            
+        # 获取原始消息（保留前缀）
+        raw_message = ""
+        try:
+            raw_message = str(event.message_obj.raw_message.get("raw_message", "")).lstrip()
+        except Exception:
+            raw_message = event.message_str.lstrip()
+        
+        astrbot_config = self.context.get_config()
+        command_prefixes = astrbot_config.get('wake_prefix', ['/'])
+
+        # 判断是否以任一指令前缀开头
+        if any(raw_message.startswith(prefix) for prefix in command_prefixes):
+            logger.debug("[调试] 命中指令前缀，清理并跳过沉浸式")
+            session_key = (event.get_group_id(), event.get_sender_id())
+            async with self.immersive_lock:
+                if session_key in self.immersive_sessions:
+                    self.immersive_sessions[session_key]['timer'].cancel()
+                    self.immersive_sessions.pop(session_key, None)
+            return
+
         # --- 逻辑1: 检查是否触发了沉浸式对话 ---
         session_key = (group_id, sender_id)
         session_data = None
         
-        async with self.immersive_lock:
-            if session_key in self.immersive_sessions:
-                # 如果用户在沉浸式会话期间@了任何人，则中断沉浸式会话
-                if any(isinstance(comp, Comp.At) for comp in event.message_obj.message):
-                    logger.info(f"[沉浸式对话] 用户 {sender_id} @了别人，沉浸式会话失效。")
-                    self.immersive_sessions[session_key]['timer'].cancel()
-                    self.immersive_sessions.pop(session_key, None)
-                else:
-                    # 成功捕获到连续对话，取出数据并取消计时器
-                    session_data = self.immersive_sessions.pop(session_key)
-                    session_data['timer'].cancel()
     
         if session_data:
             logger.info(f"[沉浸式对话] 捕获到用户 {sender_id} 的连续消息，开始判断是否回复。")
@@ -351,6 +371,33 @@ class ReplyDirectlyPlugin(Star):
                 if decision_data.get("should_reply") and decision_data.get("content"):
                     content = decision_data["content"]
                     logger.info(f"[沉浸式对话] LLM判断需要回复，内容: {content[:50]}...")
+
+                    try:
+                        conversation_manager = self.context.conversation_manager
+                        uid = event.unified_msg_origin
+                        curr_cid = await conversation_manager.get_curr_conversation_id(uid)
+                    
+                        if curr_cid:
+                            conversation = await conversation_manager.get_conversation(uid, curr_cid)
+                    
+                            try:
+                                history = json.loads(conversation.history)
+                            except Exception as e:
+                                logger.warning(f"[沉浸式对话] 解析历史记录失败: {e}")
+                                history = []
+                    
+                            history.append({"role": "user", "content": user_prompt})
+                            history.append({"role": "assistant", "content": content})
+                    
+                            conversation.history = json.dumps(history, ensure_ascii=False)
+                            await conversation_manager.update_conversation(uid, curr_cid, history)
+                    
+                            logger.debug(f"[沉浸式对话] 已追加消息到对话 {curr_cid[:8]}...")
+                        else:
+                            logger.warning(f"[沉浸式对话] 未找到当前用户的激活对话，用户: {uid}")
+                    except Exception as db_e:
+                        logger.error(f"[沉浸式对话] 保存对话到数据库时出错: {db_e}")
+
                     yield event.plain_result(content)
                 else:
                     logger.info("[沉浸式对话] LLM判断无需回复。")
