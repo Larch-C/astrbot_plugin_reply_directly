@@ -4,6 +4,7 @@
 > 项目地址：[GitHub](https://github.com/qa296/astrbot_plugin_reply_directly)
 
 ---
+
 </div>
 
 <div align="center">
@@ -11,6 +12,8 @@
 [![Moe Counter](https://count.getloli.com/get/@astrbot_plugin_reply_directly)](https://github.com/qa296/astrbot_plugin_reply_directly/)
 
 </div>
+
+---
 
 ## 功能亮点
 
@@ -26,6 +29,7 @@
 >  v1.4.0 更改了功能**沉浸式对话**不再是由llm主动触发函数。
 > 
 >  v1.4.2 修复无法正确配置人格的问题。
+>
 > 
 
 
