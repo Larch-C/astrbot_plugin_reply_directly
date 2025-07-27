@@ -15,7 +15,7 @@ import astrbot.api.message_components as Comp
     "astrbot_plugin_reply_directly",
     "qa296",
     "让您的 AstrBot 在群聊中变得更加生动和智能！本插件使其可以主动的连续交互。",
-    "1.4.4",
+    "1.4.5",
     "https://github.com/qa296/astrbot_plugin_reply_directly",
 )
 class ReplyDirectlyPlugin(Star):
@@ -227,7 +227,6 @@ class ReplyDirectlyPlugin(Star):
             logger.debug(f"[主动插话] 群 {group_id} 计时结束，收集到 {len(chat_history)} 条消息，请求LLM判断。")
 
             # 新增：调用方法获取人格信息
-            # ...
             # 新增：调用方法获取完整的对话历史
             history = await self._get_conversation_history(unified_msg_origin)
             found_persona = await self._get_persona_info_str(unified_msg_origin)
@@ -240,7 +239,7 @@ class ReplyDirectlyPlugin(Star):
             instruction = (
                 f"{user_prompt}"
                 f"{found_persona}" # 注入人格信息
-                "请分析我提供的“完整对话历史”和你未参与的“最近的群聊内容”，然后决定是否回复。"
+                "请分析我提供的“完整对话历史”和你未参与的“最近的群聊内容”判断时机恰当性、回复意愿、个人关联度、内容相关度等，然后决定是否回复。"
                 "无论如何请严格按照JSON格式在```json ... ```代码块中回答。"
                 f'格式示例：\n```json\n{{"should_reply": true, "content": "你的回复内容"}}\n```\n'
                 f'或\n```json\n{{"should_reply": false, "content": ""}}\n```'
@@ -323,7 +322,8 @@ class ReplyDirectlyPlugin(Star):
 
         # --- 逻辑1: 检查是否触发了沉浸式对话 ---
         session_key = (group_id, sender_id)
-        session_data = None
+        async with self.immersive_lock:
+            session_data = self.immersive_sessions.get(session_key)
         
     
         if session_data:
@@ -345,7 +345,7 @@ class ReplyDirectlyPlugin(Star):
             instruction = (
                 f"{user_prompt}"
                 f"{found_persona}"
-                "你刚刚和一位用户进行了对话。现在，这位用户紧接着发送了以下新消息。根据你们之前的对话上下文和这条新消息，判断你是否应该跟进回复。"
+                "你刚刚和一位用户进行了对话。现在，这位用户紧接着发送了以下新消息。根据你们之前的对话上下文和这条新消息，判断时机恰当性、回复意愿、个人关联度、内容连续性等得出你是否应该跟进回复。"
                 "无论如何请严格按照JSON格式在```json ... ```代码块中回答。"
                 f'格式示例：\n```json\n{{"should_reply": true, "content": "你的回复内容"}}\n```\n'
                 f'或\n```json\n{{"should_reply": false, "content": ""}}\n```'
