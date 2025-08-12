@@ -15,7 +15,7 @@ import astrbot.api.message_components as Comp
     "astrbot_plugin_reply_directly",
     "qa296",
     "让您的 AstrBot 在群聊中变得更加生动和智能！本插件使其可以主动的连续交互。",
-    "1.4.5",
+    "1.4.6",
     "https://github.com/qa296/astrbot_plugin_reply_directly",
 )
 class ReplyDirectlyPlugin(Star):
@@ -52,9 +52,7 @@ class ReplyDirectlyPlugin(Star):
             
         return ""
 
-    # -----------------------------------------------------
     # 辅助函数
-    # -----------------------------------------------------
 
     async def _arm_immersive_session(self, event: AstrMessageEvent):
         """当机器人回复后，为目标用户启动一个限时的沉浸式会话。"""
@@ -115,9 +113,7 @@ class ReplyDirectlyPlugin(Star):
             self.active_proactive_timers[group_id] = task
         logger.debug(f"[主动插话] 已为群 {group_id} 启动/重置了延时检查任务。")
 
-    # -----------------------------------------------------
     # 核心任务与钩子（@后触发）
-    # -----------------------------------------------------
 
     @filter.after_message_sent()
     async def after_bot_message_sent(self, event: AstrMessageEvent):
@@ -170,12 +166,12 @@ class ReplyDirectlyPlugin(Star):
 
             # 3. 从已加载的人格列表中查找完整的人格对象
             all_personas = self.context.provider_manager.personas
-            # 修改点 2: 将 p.name 修改为 p['name']
+
             found_persona = next((p for p in all_personas if p.get('name') == persona_id), None)
 
             if found_persona:
                 # 4. 格式化人格信息为字符串
-                # 修改点 3: 使用更安全的 .get() 方法访问字典
+
                 persona_details = (
                     f"--- 当前人格信息 ---\n"
                     f"名称: {found_persona.get('name', '未知')}\n"
@@ -186,7 +182,7 @@ class ReplyDirectlyPlugin(Star):
             
             return ""
         except Exception as e:
-            # 保持原来的日志记录不变
+
             logger.error(f"[人格获取] 获取人格信息时出错: {e}", exc_info=True)
             return ""
 
@@ -226,23 +222,28 @@ class ReplyDirectlyPlugin(Star):
 
             logger.debug(f"[主动插话] 群 {group_id} 计时结束，收集到 {len(chat_history)} 条消息，请求LLM判断。")
 
-            # 新增：调用方法获取人格信息
-            # 新增：调用方法获取完整的对话历史
+            # 调用方法获取人格信息
+            # 调用方法获取完整的对话历史
             history = await self._get_conversation_history(unified_msg_origin)
             found_persona = await self._get_persona_info_str(unified_msg_origin)
 
             formatted_history = "\n".join(chat_history)
-            # 修改：将最近的群聊内容作为 prompt
+            # 将最近的群聊内容作为 prompt
             user_prompt = f"--- 最近的群聊内容 ---\n{formatted_history}\n--- 群聊内容结束 ---"
             
-            # 修改：将人格信息和任务描述放入 instruction (system_prompt)
             instruction = (
-                f"{user_prompt}"
-                f"{found_persona}" # 注入人格信息
-                "请分析我提供的“完整对话历史”和你未参与的“最近的群聊内容”判断时机恰当性、回复意愿、个人关联度、内容相关度等，然后决定是否回复。"
-                "无论如何请严格按照JSON格式在```json ... ```代码块中回答。"
-                f'格式示例：\n```json\n{{"should_reply": true, "content": "你的回复内容"}}\n```\n'
-                f'或\n```json\n{{"should_reply": false, "content": ""}}\n```'
+            f"{user_prompt}"
+            f"{found_persona}"
+            "【铁律】你的最终答案必须且只能出现在一对 ```json … ``` 代码块里，"
+            "若违反上述格式，你的回答会被判定为格式错误并直接丢弃，"
+            "最终输出里只保留符合格式的结果。"
+            "正确示范 1：\n```json\n{\"should_reply\": true, \"content\": \"好的，我来帮你\"}\n```\n"
+            "正确示范 2：\n```json\n{\"should_reply\": false, \"content\": \"\"}\n```\n"
+            "正确示范 3：\n```json\n{\"should_reply\": true, \"content\": \"\"}\n```\n"
+            "正确示范 4：\n```json\n{\"should_reply\": false, \"content\": \"暂时不想回复\"}\n```\n"
+            "请根据我提供的“完整对话历史”和你未参与的“最近群聊内容”综合判断："
+            "时机恰当性、回复意愿、个人关联度、内容相关度等，再决定是否回复。"
+            "严格按照上述 JSON 格式输出。"
             )
 
             provider = self.context.get_using_provider()
@@ -250,7 +251,7 @@ class ReplyDirectlyPlugin(Star):
                 logger.warning("[主动插话] 未找到可用的大语言模型提供商。")
                 return
 
-            # 修改：在 text_chat 调用中传入 history 作为 contexts
+            # 在 text_chat 调用中传入 history 作为 contexts
             llm_response = await provider.text_chat(
                 prompt=user_prompt, 
                 contexts=history, 
@@ -266,13 +267,27 @@ class ReplyDirectlyPlugin(Star):
                 return
             try:
                 decision_data = json.loads(json_string)
-                if decision_data.get("should_reply") and decision_data.get("content"):
-                    content = decision_data["content"]
-                    logger.info(f"[主动插话] LLM判断需要回复，内容: {content[:50]}...")
-                    message_chain = MessageChain().message(content)
-                    await self.context.send_message(unified_msg_origin, message_chain)
+                should_reply = decision_data.get("should_reply")
+                content = decision_data.get("content", "")
+            
+                if should_reply is True:
+                    if content:  # true 且有内容才回复
+                        logger.info(f"[主动插话] LLM判断需要回复，内容: {content[:50]}...")
+                        message_chain = MessageChain().message(content)
+                        await self.context.send_message(unified_msg_origin, message_chain)
+                    else:
+                        logger.info("[主动插话] LLM判断为 true 但内容为空，跳过回复，继续计时。")
+                        # ✅ 继续下一次计时
+                        await self._start_proactive_check(group_id, unified_msg_origin)
+                elif should_reply is False:
+                    if content:  # false 但有内容也回复
+                        logger.info(f"[主动插话] LLM判断为 false 但仍回复，内容: {content[:50]}...")
+                        message_chain = MessageChain().message(content)
+                        await self.context.send_message(unified_msg_origin, message_chain)
+                    else:
+                        logger.info("[主动插话] LLM判断为 false 且无内容，跳过回复与计时。")
                 else:
-                    logger.info("[主动插话] LLM判断无需回复。")
+                    logger.warning("[主动插话] LLM返回格式异常，跳过处理。")
             except (json.JSONDecodeError, TypeError, AttributeError) as e:
                 logger.error(f"[主动插话] 解析LLM的JSON回复失败: {e}\n原始回复: {llm_response.completion_text}\n清理后文本: '{json_string}'")
 
@@ -286,11 +301,9 @@ class ReplyDirectlyPlugin(Star):
                     self.active_proactive_timers.pop(group_id, None)
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def on_group_message(self, event: AstrMessageEvent, context: Context):
+    async def on_group_message(self, event: AstrMessageEvent):
         """统一处理所有群聊消息，优先处理沉浸式对话。"""
-        if not self.config.get("enable_plugin", True):
-            return
-    
+
         # 从 event 对象获取事件相关信息
         group_id = event.get_group_id()
         sender_id = event.get_sender_id()
@@ -345,11 +358,17 @@ class ReplyDirectlyPlugin(Star):
             instruction = (
                 f"{user_prompt}"
                 f"{found_persona}"
-                "你刚刚和一位用户进行了对话。现在，这位用户紧接着发送了以下新消息。根据你们之前的对话上下文和这条新消息，判断时机恰当性、回复意愿、个人关联度、内容连续性等得出你是否应该跟进回复。"
-                "无论如何请严格按照JSON格式在```json ... ```代码块中回答。"
-                f'格式示例：\n```json\n{{"should_reply": true, "content": "你的回复内容"}}\n```\n'
-                f'或\n```json\n{{"should_reply": false, "content": ""}}\n```'
-            )
+                "【铁律】你的最终答案必须且只能出现在一对 ```json … ``` 代码块里，"
+                "若违反上述格式，你的回答会被判定为格式错误并直接丢弃，"
+                "最终输出里只保留符合格式的结果。"
+                "正确示范 1：\n```json\n{\"should_reply\": true, \"content\": \"好的，我来帮你\"}\n```\n"
+                "正确示范 2：\n```json\n{\"should_reply\": false, \"content\": \"\"}\n```\n"
+                "正确示范 3：\n```json\n{\"should_reply\": true, \"content\": \"\"}\n```\n"
+                "正确示范 4：\n```json\n{\"should_reply\": false, \"content\": \"暂时不想回复\"}\n```\n"
+                "请提供你与一位用户的完整对话记录，并根据该用户刚发送的最新消息内容进行综合判断："
+                "时机恰当性、回复意愿、个人关联度、内容相关度等，再决定是否回复。"
+                "严格按照上述 JSON 格式输出。"
+                )
     
             provider = self.context.get_using_provider()
             if not provider:
@@ -368,9 +387,25 @@ class ReplyDirectlyPlugin(Star):
     
             try:
                 decision_data = json.loads(json_string)
-                if decision_data.get("should_reply") and decision_data.get("content"):
-                    content = decision_data["content"]
-                    logger.info(f"[沉浸式对话] LLM判断需要回复，内容: {content[:50]}...")
+                should_reply = decision_data.get("should_reply")
+                content = decision_data.get("content", "")
+            
+                if should_reply is True:
+                    if content:
+                        logger.info(f"[沉浸式对话] LLM判断需要回复，内容: {content[:50]}...")
+                        yield event.plain_result(content)
+                        #保存对话历史
+                        ...
+                    else:
+                        logger.info("[沉浸式对话] LLM判断为 true 但内容为空，跳过回复，继续计时。")
+                        #触发主动插话计时
+                        await self._start_proactive_check(group_id, event.unified_msg_origin)
+                elif should_reply is False:
+                    if content:
+                        logger.info(f"[沉浸式对话] LLM判断为 false 但仍回复，内容: {content[:50]}...")
+                        yield event.plain_result(content)
+                    else:
+                        logger.info("[沉浸式对话] LLM判断为 false 且无内容，跳过回复与计时。")
 
                     try:
                         conversation_manager = self.context.conversation_manager
@@ -400,7 +435,20 @@ class ReplyDirectlyPlugin(Star):
 
                     yield event.plain_result(content)
                 else:
-                    logger.info("[沉浸式对话] LLM判断无需回复。")
+                    logger.info("[沉浸式对话] LLM判断无需回复，尝试触发主动插话。")
+                
+                    # 将这条消息加入群聊缓冲区
+                    async with self.proactive_lock:
+                        if group_id in self.active_proactive_timers:
+                            sender_name = event.get_sender_name() or sender_id
+                            message_text = event.message_str.strip()
+                            if message_text and len(self.group_chat_buffer[group_id]) < 20:
+                                self.group_chat_buffer[group_id].append(
+                                    f"{sender_name}: {message_text}"
+                                )
+                
+                    # 立即触发一次主动插话检查（模拟机器人“刚发完消息”）
+                    await self._start_proactive_check(group_id, event.unified_msg_origin)
             except Exception as e:
                 logger.error(f"[沉浸式对话] 解析或处理LLM的JSON时出错: {e}")
             
