@@ -232,18 +232,15 @@ class ReplyDirectlyPlugin(Star):
             user_prompt = f"--- 最近的群聊内容 ---\n{formatted_history}\n--- 群聊内容结束 ---"
             
             instruction = (
-            f"{user_prompt}"
-            f"{found_persona}"
-            "【铁律】你的最终答案必须且只能出现在一对 ```json … ``` 代码块里，"
-            "若违反上述格式，你的回答会被判定为格式错误并直接丢弃，"
-            "最终输出里只保留符合格式的结果。"
-            "正确示范 1：\n```json\n{\"should_reply\": true, \"content\": \"好的，我来帮你\"}\n```\n"
-            "正确示范 2：\n```json\n{\"should_reply\": false, \"content\": \"\"}\n```\n"
-            "正确示范 3：\n```json\n{\"should_reply\": true, \"content\": \"\"}\n```\n"
-            "正确示范 4：\n```json\n{\"should_reply\": false, \"content\": \"暂时不想回复\"}\n```\n"
-            "请根据我提供的“完整对话历史”和你未参与的“最近群聊内容”综合判断："
-            "时机恰当性、回复意愿、个人关联度、内容相关度等，再决定是否回复。"
-            "严格按照上述 JSON 格式输出。"
+                "你需要根据对话历史和人格设定，判断是否要回复以及回复什么。"
+                "【1. 输出格式】必须严格返回```json{\"should_reply\": 布尔值, \"content\": \"字符串\"}```的格式，否则无效。"
+                "【2. 字段解释】"
+                " - `should_reply` (布尔值): 决定你是否想主动发起或继续对话。true表示想，false表示不想。"
+                " - `content` (字符串): 你的回复内容。即使不想继续对话(false)，也可以通过提供内容来发表简短、非引导性的评论。"
+                "【3. 判断场景】"
+                " - **想继续对话 (should_reply: true)**: 当话题有趣、与你相关、或你能提供价值时使用。此时`content`应为具体回复。"
+                " - **不想继续对话 (should_reply: false)**: 当话题无关、无聊、或你想结束对话时使用。此时`content`可为空字符串（不回复），或一句简短的结束语/吐槽。"
+                " - **情景感知**: 分析“最近群聊内容”判断当前讨论是否已结束或是一个新开端，结合“完整对话历史”理解前因后果，再做出决策。"
             )
 
             provider = self.context.get_using_provider()
@@ -356,19 +353,16 @@ class ReplyDirectlyPlugin(Star):
             saved_context = session_data.get('context', [])
             user_prompt = event.message_str
             instruction = (
-                f"{user_prompt}"
-                f"{found_persona}"
-                "【铁律】你的最终答案必须且只能出现在一对 ```json … ``` 代码块里，"
-                "若违反上述格式，你的回答会被判定为格式错误并直接丢弃，"
-                "最终输出里只保留符合格式的结果。"
-                "正确示范 1：\n```json\n{\"should_reply\": true, \"content\": \"好的，我来帮你\"}\n```\n"
-                "正确示范 2：\n```json\n{\"should_reply\": false, \"content\": \"\"}\n```\n"
-                "正确示范 3：\n```json\n{\"should_reply\": true, \"content\": \"\"}\n```\n"
-                "正确示范 4：\n```json\n{\"should_reply\": false, \"content\": \"暂时不想回复\"}\n```\n"
-                "请提供你与一位用户的完整对话记录，并根据该用户刚发送的最新消息内容进行综合判断："
-                "时机恰当性、回复意愿、个人关联度、内容相关度等，再决定是否回复。"
-                "严格按照上述 JSON 格式输出。"
-                )
+                "你正在与一位用户进行沉浸式对话，需要根据对话历史和人格设定，判断是否要继续回复。"
+                "【1. 输出格式】必须严格返回```json{\"should_reply\": 布尔值, \"content\": \"字符串\"}```的格式，否则无效。"
+                "【2. 字段解释】"
+                " - `should_reply` (布尔值): 决定你是否想主动发起或继续对话。true表示想，false表示不想。"
+                " - `content` (字符串): 你的回复内容。即使不想继续对话(false)，也可以通过提供内容来发表简短、非引导性的评论。"
+                "【3. 判断场景】"
+                " - **想继续对话 (should_reply: true)**: 当用户的话题有趣、与你相关、或你能提供价值时使用。此时`content`应为具体回复。"
+                " - **不想继续对话 (should_reply: false)**: 当用户的话题无关、无聊、或你想结束对话时使用。此时`content`可为空字符串(不回复)，或一句简短的结束语。"
+                " - **情景感知**: 这是用户的追问，请结合“完整对话历史”理解前因后果，再做出决策。"
+            )
     
             provider = self.context.get_using_provider()
             if not provider:
